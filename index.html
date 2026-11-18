@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meditation Timer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Meditate">
+<meta name="theme-color" id="tc" content="#0f1b2d">
+<style>
+:root{--bg:#0f1b2d;--card:#18273d;--fg:#e6edf7;--mut:#8fa3bf;--acc:#7fb3ff;--on:#0b1524;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+[data-theme=forest]{--bg:#101c16;--card:#1a2b22;--fg:#e4efe8;--mut:#8aa596;--acc:#7fd1a0;--on:#0a1610}
+[data-theme=dusk]{--bg:#1d1630;--card:#2a2145;--fg:#eee8fa;--mut:#a396c4;--acc:#c3a1ff;--on:#17102a}
+[data-theme=sand]{--bg:#f4ede1;--card:#e8dfcf;--fg:#3b3226;--mut:#8a7c68;--acc:#b5733a;--on:#fff8ee}
+[data-theme=slate]{--bg:#16181d;--card:#22262e;--fg:#e8eaee;--mut:#8b92a0;--acc:#e0b469;--on:#1a1407}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:480px;margin:0 auto;padding:20px;display:flex;flex-direction:column;gap:14px;min-height:100%;box-sizing:border-box}
+h1{font-size:22px;font-weight:600;margin:4px 0 2px}
+.card{background:var(--card);border-radius:14px;padding:14px 16px}
+.row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.row b{font-weight:500}.val{color:var(--acc);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--acc)}
+select{flex:1;min-width:0;background:var(--bg);color:var(--fg);border:1px solid var(--mut);border-radius:10px;padding:10px;font-size:16px}
+.pair{display:flex;gap:8px}
+button{font:inherit;border:0;border-radius:10px;cursor:pointer}
+.prev{background:transparent;color:var(--acc);border:1px solid var(--acc);padding:0 14px}
+.go{background:var(--acc);color:var(--on);font-size:20px;font-weight:600;padding:16px;margin-top:6px}
+.sec{background:transparent;color:var(--fg);border:1px solid var(--mut);padding:14px 28px;font-size:17px}
+#session{display:none;flex:1;align-items:center;justify-content:center;text-align:center;gap:18px;flex-direction:column}
+#time{font-size:76px;font-weight:300;font-variant-numeric:tabular-nums}
+#label{color:var(--mut);font-size:18px}
+#bar{width:80%;height:4px;background:var(--card);border-radius:2px;overflow:hidden}
+#fill{height:100%;width:0;background:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <div id="setup">
+  <div class="row"><h1>Meditation</h1>
+   <select id="theme" style="flex:none" aria-label="Color palette">
+    <option value="midnight">Midnight</option><option value="forest">Forest</option><option value="dusk">Dusk</option><option value="sand">Sand</option><option value="slate">Slate</option>
+   </select></div>
+  <div style="display:flex;flex-direction:column;gap:14px">
+   <div class="card"><div class="row"><b>Total time</b><span class="val" id="totalV"></span></div>
+    <input type="range" id="total" min="0" max="60" step="1" value="10"></div>
+   <div class="card"><div class="row"><b>Reminder interval</b><span class="val" id="intV"></span></div>
+    <input type="range" id="int" min="0" max="600" step="15" value="60"></div>
+   <div class="card"><div class="row"><b>Reminder sound</b></div>
+    <div class="pair"><select id="rem"></select><button class="prev" id="remP">Play</button></div></div>
+   <div class="card"><div class="row"><b>Ending sound</b></div>
+    <div class="pair"><select id="end"></select><button class="prev" id="endP">Play</button></div></div>
+  </div>
+  <button class="go" id="start" style="width:100%;margin-top:14px">Start</button>
+ </div>
+ <div id="session">
+  <div id="label"></div><div id="time"></div><div id="bar"><div id="fill"></div></div>
+  <button class="sec" id="stop">Stop</button>
+ </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const fmt=s=>{s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;return(h?h+':'+String(m).padStart(2,'0'):m)+':'+String(r).padStart(2,'0')};
+const REM={soft:'Soft bell',standing:'Standing bell',wood:'Wood chime'};
+const END={bowl:'Singing bowl',gong:'Deep gong',triple:'Triple bell'};
+
+/* ---- audio: pre-rendered wav files in /sounds, played through Web Audio ---- */
+let ctx;const bufs={};
+function audio(){if(!ctx)ctx=new(window.AudioContext||window.webkitAudioContext)();if(ctx.state!=='running')ctx.resume();return ctx}
+async function load(name){if(bufs[name])return bufs[name];
+ const r=await fetch('sounds/'+name+'.wav');
+ return bufs[name]=await audio().decodeAudioData(await r.arrayBuffer())}
+async function play(prefix,key){if(key==='none')return;
+ try{const b=await load(prefix+'-'+key),s=audio().createBufferSource();s.buffer=b;s.connect(ctx.destination);s.start()}catch(e){console.error(e)}}
+function fill(sel,set){for(const k in set)sel.add(new Option(set[k],k));sel.add(new Option('No sound','none'))}
+fill($('rem'),REM);fill($('end'),END);
+$('remP').onclick=()=>play('rem',$('rem').value);
+$('endP').onclick=()=>play('end',$('end').value);
+
+/* ---- settings (remembered between launches) ---- */
+const KEY='meditation-settings-v1';
+function save(){try{localStorage.setItem(KEY,JSON.stringify({total:$('total').value,int:$('int').value,rem:$('rem').value,end:$('end').value,theme:$('theme').value}))}catch(e){}}
+function applyTheme(t){document.documentElement.dataset.theme=t;
+ requestAnimationFrame(()=>{$('tc').content=getComputedStyle(document.body).backgroundColor})}
+function lbl(){const t=+$('total').value,i=+$('int').value;
+ $('totalV').textContent=t?t+' min':'Unlimited';
+ $('intV').textContent=!i?'No reminder':i<60?i+' s':(Math.floor(i/60)+' min'+(i%60?' '+i%60+' s':''))}
+try{const s=JSON.parse(localStorage.getItem(KEY)||'null');
+ if(s){for(const id of['total','int','rem','end','theme'])if(s[id]!=null)$(id).value=s[id]}}catch(e){}
+applyTheme($('theme').value);lbl();
+$('theme').onchange=e=>{applyTheme(e.target.value);save()};
+for(const id of['total','int'])$(id).oninput=()=>{lbl();save()};
+for(const id of['rem','end'])$(id).onchange=save;
+
+/* ---- session ---- */
+let S=null,wl=null;
+async function lock(){try{wl=await navigator.wakeLock.request('screen')}catch(e){}}
+function unlock(){try{wl&&wl.release()}catch(e){}wl=null}
+document.addEventListener('visibilitychange',()=>{if(S&&!S.done&&document.visibilityState==='visible')lock()});
+function view(s){$('setup').style.display=s?'none':'block';$('session').style.display=s?'flex':'none'}
+$('start').onclick=()=>{audio();
+ S={total:+$('total').value*60,int:+$('int').value,rem:$('rem').value,end:$('end').value,t0:Date.now()+5000,fired:0,done:false};
+ if(S.rem!=='none')load('rem-'+S.rem);if(S.end!=='none')load('end-'+S.end);
+ view(true);$('stop').textContent='Stop';lock();S.timer=setInterval(tick,200);tick()};
+function tick(){const el=(Date.now()-S.t0)/1000;
+ if(el<0){$('label').textContent='Get comfortable…';$('time').textContent=Math.ceil(-el);$('fill').style.width='0';return}
+ $('label').textContent=S.total?'Remaining':'Elapsed';
+ $('time').textContent=S.total?fmt(Math.ceil(S.total-el)):fmt(el);
+ if(S.total)$('fill').style.width=Math.min(100,el/S.total*100)+'%';
+ if(S.int){const k=Math.floor(el/S.int);if(k>S.fired){S.fired=k;if(!S.total||k*S.int<S.total-0.5)play('rem',S.rem)}}
+ if(S.total&&el>=S.total)finish()}
+function finish(){clearInterval(S.timer);S.done=true;unlock();play('end',S.end);
+ $('label').textContent='Session complete';$('time').textContent=fmt(S.total);$('fill').style.width='100%';$('stop').textContent='Done'}
+$('stop').onclick=()=>{clearInterval(S.timer);unlock();S=null;view(false)};
+
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script>
+</body>
+</html>
